@@ -7,70 +7,71 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url
 ).href;
 
-const MIN_TEXT_CHAR_THRESHOLD = 200;
-const MAX_OCR_PAGES = 20;
+/** Sahifada shuncha belgidan kam matn bo'lsa, sahifa rasm/skan deb hisoblanib OCR ishlatiladi */
+const MIN_TEXT_PER_PAGE_FOR_SKIP_OCR = 80;
+const MAX_OCR_PAGES = 25;
+const OCR_SCALE = 2.5;
+/** Tesseract tillar: eng, rus (kirill). uzb mavjud bo'lsa avtomatik qo'shiladi */
+const OCR_LANGS_PRIMARY = 'eng+rus';
+const OCR_LANGS_WITH_UZB = 'eng+rus+uzb';
 
 export const extractTextFromPdf = async (file: File): Promise<string> => {
     try {
         const arrayBuffer = await file.arrayBuffer();
         const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        let fullText = '';
+        const totalPages = Math.min(pdf.numPages, MAX_OCR_PAGES);
+        const pageTexts: string[] = [];
 
-        // 1) Avval pdf.js orqali mavjud matnni o'qib ko'ramiz
-        for (let i = 1; i <= pdf.numPages; i++) {
+        for (let i = 1; i <= totalPages; i++) {
             const page = await pdf.getPage(i);
             const textContent = await page.getTextContent();
             const pageText = textContent.items
                 .map((item: any) => item.str)
-                .join(' ');
-            if (pageText.trim()) {
-                fullText += `--- Page ${i} ---\n${pageText}\n\n`;
+                .join(' ')
+                .trim();
+            const textLen = pageText.replace(/\s+/g, '').length;
+
+            // Agar sahifada matn yetarli bo'lsa – faqat shuni ishlatamiz
+            if (textLen >= MIN_TEXT_PER_PAGE_FOR_SKIP_OCR) {
+                pageTexts.push(`--- Page ${i} ---\n${pageText}\n\n`);
+                continue;
             }
-        }
 
-        const nonWhitespaceChars = fullText.replace(/\s+/g, '').length;
-        if (nonWhitespaceChars >= MIN_TEXT_CHAR_THRESHOLD) {
-            // Yetarli matn bor – odatdagi pipeline uchun shu yetadi
-            return fullText;
-        }
-
-        // 2) Agar matn juda kam bo'lsa, bu ehtimol skanerlangan PDF.
-        //    Shunda Tesseract.js yordamida OCR qilib ko'ramiz.
-        let ocrText = '';
-        const totalPages = pdf.numPages;
-        const pagesToProcess = Math.min(totalPages, MAX_OCR_PAGES);
-
-        for (let i = 1; i <= pagesToProcess; i++) {
-            const page = await pdf.getPage(i);
-            const viewport = page.getViewport({ scale: 2 }); // biroz yuqori sifat
-
+            // Sahifa rasm/skan – OCR qilamiz (rasmli PDF ichidagi ismlar shu orqali chiqadi)
+            const viewport = page.getViewport({ scale: OCR_SCALE });
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d');
-            if (!context) continue;
+            if (!context) {
+                if (pageText) pageTexts.push(`--- Page ${i} ---\n${pageText}\n\n`);
+                continue;
+            }
 
             canvas.width = viewport.width;
             canvas.height = viewport.height;
-
             await page.render({ canvasContext: context, viewport }).promise;
 
             const dataUrl = canvas.toDataURL('image/png');
             try {
-                const result = await Tesseract.recognize(
-                    dataUrl,
-                    'eng+rus', // asosiy tillar; kerak bo'lsa keyin kengaytirish mumkin
-                    { logger: () => {} }
-                );
-                if (result.data && result.data.text) {
-                    ocrText += `--- OCR Page ${i} ---\n${result.data.text}\n\n`;
+                let result: { data?: { text?: string } } | null = null;
+                try {
+                    result = await Tesseract.recognize(dataUrl, OCR_LANGS_WITH_UZB, { logger: () => {} });
+                } catch (_) {
+                    result = await Tesseract.recognize(dataUrl, OCR_LANGS_PRIMARY, { logger: () => {} });
+                }
+                const ocrText = result?.data?.text?.trim() || '';
+                if (ocrText) {
+                    pageTexts.push(`--- Page ${i} (OCR) ---\n${ocrText}\n\n`);
+                } else if (pageText) {
+                    pageTexts.push(`--- Page ${i} ---\n${pageText}\n\n`);
                 }
             } catch (ocrError) {
-                console.error(`OCR failed for page ${i}:`, ocrError);
+                if (pageText) pageTexts.push(`--- Page ${i} ---\n${pageText}\n\n`);
             }
         }
 
-        const combined = (fullText + '\n' + ocrText).trim();
+        const combined = pageTexts.join('').trim();
         if (!combined) {
-            throw new Error("PDF dan matn o'qib bo'lmadi (odatdagi va OCR usullari).");
+            throw new Error("PDF dan matn o'qib bo'lmadi (matn + OCR). Rasmli sahifalar bo'lsa, OCR ishlatildi.");
         }
         return combined;
     } catch (error) {
