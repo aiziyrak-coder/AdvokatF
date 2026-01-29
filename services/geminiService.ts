@@ -519,11 +519,11 @@ const fallbackExtractParticipants = (caseDetails: string, files: CaseFile[]): Su
   // Agar hech narsa topilmasa, bo'sh ro'yxat qaytaramiz (mantiqsiz so'zlar o'rniga)
   const finalList = filtered;
 
-  // QAT'IY: faqat hujjatda SO'Z CHEGARASIDA uchragan ismlar (yopishib ketgan so'z rad etiladi).
-  const fullForFallback = textChunks.join("\n").replace(/\s+/g, " ").toLowerCase();
+  // Hujjatda uchragan ismlar: avval qat'iy (so'z chegarasi), bo'sh bo'lsa ibora sifatida (loose).
+  const fullForFallback = textChunks.join("\n").normalize("NFC").replace(/\s+/g, " ").replace(/\u00A0/g, " ").toLowerCase().trim();
   const isWordCharF = (ch: string) => /[a-zа-яёўқғҳ0-9]/i.test(ch);
-  const appearsInDocStrict = (name: string) => {
-    const n = name.trim().toLowerCase();
+  const appearsStrict = (name: string) => {
+    const n = name.trim().normalize("NFC").replace(/\s+/g, " ").toLowerCase();
     if (!n) return false;
     const idx = fullForFallback.indexOf(n);
     if (idx === -1) return false;
@@ -531,7 +531,13 @@ const fallbackExtractParticipants = (caseDetails: string, files: CaseFile[]): Su
     const after = idx + n.length >= fullForFallback.length ? " " : fullForFallback[idx + n.length];
     return !isWordCharF(before) && !isWordCharF(after);
   };
-  const verified = finalList.filter((name) => appearsInDocStrict(name));
+  const appearsLoose = (name: string) => {
+    const n = name.trim().normalize("NFC").replace(/\s+/g, " ").toLowerCase();
+    if (!n || n.length < 3) return false;
+    return fullForFallback.includes(n);
+  };
+  let verified = finalList.filter((name) => appearsStrict(name));
+  if (verified.length === 0) verified = finalList.filter((name) => appearsLoose(name));
   return verified
     .slice(0, 100)
     .map((name) => ({
@@ -931,12 +937,13 @@ Javob – faqat JSON: {"participants":[{"name":"Matndagi ism aynan shunday","sug
       }
     }
 
-    // 4) QAT'IY: faqat hujjat matnida SO'Z CHEGARASIDA (butun ibora) uchragan ismlar. Uydirma/yopishib ketgan so'z rad etiladi.
-    const fullDocText = [caseDetails, ...(files || []).map((f) => f.extractedText || "")].join("\n").replace(/\s+/g, " ");
-    const fullDocNorm = fullDocText.toLowerCase().trim();
+    // 4) Faqat hujjat matnida uchragan ismlar: avval qat'iy (so'z chegarasi), bo'sh bo'lsa bo'shliqni normalizatsiya qilib yoki ibora sifatida qidirish.
+    const fullDocText = [caseDetails, ...(files || []).map((f) => f.extractedText || "")].join("\n");
+    const fullDocNorm = fullDocText.normalize("NFC").replace(/\s+/g, " ").replace(/\u00A0/g, " ").toLowerCase().trim();
     const isWordChar = (ch: string) => /[a-zа-яёўқғҳ0-9]/i.test(ch);
+    const normalizeName = (name: string) => name.normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase();
     const nameAppearsInDocStrict = (name: string): boolean => {
-      const n = name.trim().replace(/\s+/g, " ").toLowerCase();
+      const n = normalizeName(name);
       if (!n || n.length < 3) return false;
       const idx = fullDocNorm.indexOf(n);
       if (idx === -1) return false;
@@ -944,17 +951,27 @@ Javob – faqat JSON: {"participants":[{"name":"Matndagi ism aynan shunday","sug
       const after = idx + n.length >= fullDocNorm.length ? " " : fullDocNorm[idx + n.length];
       return !isWordChar(before) && !isWordChar(after);
     };
+    const nameAppearsInDocLoose = (name: string): boolean => {
+      const n = normalizeName(name);
+      if (!n || n.length < 4) return false;
+      const parts = n.split(/\s+/).filter(Boolean);
+      if (parts.length >= 2 && parts.every((w) => w.length >= 2) && fullDocNorm.includes(n)) return true;
+      if (parts.length === 1 && n.length >= 3 && fullDocNorm.includes(n)) return true;
+      return false;
+    };
     let cleanedAi = Array.from(byName.values()).filter((p) => nameAppearsInDocStrict(p.name));
+    if (cleanedAi.length === 0) cleanedAi = Array.from(byName.values()).filter((p) => nameAppearsInDocLoose(p.name));
     cleanedAi = cleanedAi.slice(0, 100);
 
-    // 5) Agar AI dan hujjatga mos ism kam bo'lsa, faqat lokal ro'yxatdan ham QAT'IY tekshiruvdan o'tganlarni qo'shamiz.
+    // 5) Agar AI dan hujjatga mos ism kam bo'lsa, lokal ro'yxatdan ham qo'shamiz (strict yoki loose).
+    const nameOk = (p: { name: string }) => nameAppearsInDocStrict(p.name) || nameAppearsInDocLoose(p.name);
     if (cleanedAi.length <= 1 && localParticipants.length > 0) {
       const extra = localParticipants
-        .filter((lp) => !!lp.name && nameAppearsInDocStrict(lp.name) && !byName.has(lp.name.trim().toLowerCase()))
+        .filter((lp) => !!lp.name && nameOk(lp) && !byName.has(lp.name.trim().toLowerCase()))
         .slice(0, 5);
-      return cleanedAi.length ? [...cleanedAi, ...extra] : localParticipants.filter((lp) => nameAppearsInDocStrict(lp.name));
+      return cleanedAi.length ? [...cleanedAi, ...extra] : localParticipants.filter(nameOk);
     }
-    if (cleanedAi.length === 0) return localParticipants.filter((lp) => nameAppearsInDocStrict(lp.name));
+    if (cleanedAi.length === 0) return localParticipants.filter(nameOk);
 
     return cleanedAi;
   } catch (error) {
