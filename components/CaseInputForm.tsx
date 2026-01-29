@@ -263,6 +263,7 @@ export const CaseInputForm: React.FC<CaseInputFormProps> = ({ onAnalyze, isLoadi
                         ) : (
                             <div className="text-center py-4">
                                 <p className="text-sm text-yellow-500 mb-2">{t('participant_none_found')}</p>
+                                <p className="text-xs text-[var(--text-secondary)] mb-3 max-w-md mx-auto">{t('participant_none_found_hint')}</p>
                                 <button type="button" onClick={() => { lastScannedFilesCount.current = -1; setIdentifiedParticipants([]); }} className="text-xs text-[var(--accent-primary)] hover:underline">{t('participant_retry')}</button>
                             </div>
                         )}
