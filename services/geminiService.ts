@@ -11,8 +11,8 @@ import type {
   TimelineEvent,
 } from "../types";
 
-// GEMINI API kaliti .env faylidan olinadi (xavfsizlik uchun GitHub'ga push qilinmaydi).
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY ?? "";
+// GEMINI API kaliti: avval .env, yo'q bo'lsa kodda berilgan kalit ishlatiladi.
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || "AIzaSyBgtfbSLet0LVZfbbyO1SHo_9CwUOrISfU";
 
 if (!GEMINI_API_KEY) {
   throw new Error("GEMINI API kaliti topilmadi. Iltimos, VITE_GEMINI_API_KEY ni .env faylida sozlang.");
