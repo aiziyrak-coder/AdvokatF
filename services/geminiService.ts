@@ -410,120 +410,9 @@ const prepareParticipantTextParts = (caseDetails: string, files: CaseFile[]) => 
   return parts;
 };
 
-// Sodda, lekin foydali fallback: AI javobi bo'lmasa yoki ulanish imkoni bo'lmasa,
-// matn ichidan ehtimoliy shaxs nomlarini chiqarib beradi.
-const fallbackExtractParticipants = (caseDetails: string, files: CaseFile[]): SuggestedParticipant[] => {
-  const textChunks: string[] = [];
-
-  if (caseDetails && caseDetails.trim()) {
-    textChunks.push(caseDetails.trim());
-  }
-
-  files.forEach((file) => {
-    if (file.extractedText && file.extractedText.trim()) {
-      textChunks.push(file.extractedText.slice(0, 40000)); // har fayldan 40k belgi
-    }
-  });
-
-  if (!textChunks.length) return [];
-
-  const full = textChunks.join('\n\n');
-  const candidates = new Map<string, string>();
-
-  // 1) Qo‘shtirnoq ichidagi nomlar: «Agrobank» ATB, "Toshkent tumanlararo iqtisodiy sudi" va h.k.
-  const quoteRegex = /[«“"']([^«»“”"']{3,80})[»“"']/gmu;
-  let m: RegExpExecArray | null;
-  while ((m = quoteRegex.exec(full)) !== null) {
-    const name = m[1].trim();
-    if (name.length >= 3 && name.length <= 80) {
-      const key = name.toLowerCase();
-      if (!candidates.has(key)) {
-        candidates.set(key, name);
-      }
-    }
-  }
-
-  // 2) Tashkilot/sudga o‘xshash tugashlar: ATB, banki, sudi, sudiga, kompaniyasi, MChJ va h.k.
-  const orgRegex = /([A-ZЎҚҒҲ][\w'’\-]{2,}(?:\s+[A-ZЎҚҒҲ][\w'’\-]{2,})*\s+(?:ATB|banki|bank|sudi|sudiga|sudiга|sudiда|kompaniyasi|MChJ))/gmu;
-  while ((m = orgRegex.exec(full)) !== null) {
-    const name = m[1].trim();
-    const key = name.toLowerCase();
-    if (!candidates.has(key)) {
-      candidates.set(key, name);
-    }
-  }
-
-  // 3) Ikki so‘zli shaxs ismlari: Berdiyev Sanjar, Akmalov Akmal va h.k.
-  const personRegex = /([A-ZА-ЯЁЎҚҒҲ][\w'’\-]{2,}\s+[A-ZА-ЯЁЎҚҒҲ][\w'’\-]{2,})/gmu;
-  while ((m = personRegex.exec(full)) !== null) {
-    const name = m[1].trim();
-    const key = name.toLowerCase();
-    if (!candidates.has(key)) {
-      candidates.set(key, name);
-    }
-  }
-
-  // 4) Rolga bog'langan nomlar: "Da'vogar: Ali Valiyev", "Javobgar: OOO Bank" va hokazo.
-  const roleNameRegex = /(Da'vogar|Javobgar|Sudlanuvchi|Gumonlanuvchi|Ayblanuvchi|Jabrlanuvchi|Guvoh)\s*:\s*([^\n,;]{3,80})/gimu;
-  while ((m = roleNameRegex.exec(full)) !== null) {
-    const rawName = m[2].trim();
-    const cleanedName = rawName.replace(/\s+/g, ' ');
-    const key = cleanedName.toLowerCase();
-    if (cleanedName.length >= 3 && !candidates.has(key)) {
-      candidates.set(key, cleanedName);
-    }
-  }
-
-  // 5) Yakuniy filtrlash: faqat odam ismlari (yuridik shaxslar ham emas, sarlavha va brendlar emas).
-  const hasVowel = (s: string) =>
-    /[aeiouiyAEIOUIYАОЭЕИУЫЁЮЯаоэеиуыёюяЎИУОАЭЮЯўиуоаэюя]/u.test(s);
-  const hasConsonant = (s: string) =>
-    /[bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZБВГДЖЗЙКЛМНПРСТФХЦЧШЩбвгджзйклмнпрстфхцчшщҚҒҲқғҳ]/u.test(s);
-
-  const isLikelyPerson = (name: string) => {
-    const trimmed = name.trim();
-    // Raqamlar, "Page", "OCR" va yuridik shaxs tail'lari bo'lsa – rad etamiz
-    if (/[0-9]/.test(trimmed)) return false;
-    if (/\b(Page|OCR)\b/i.test(trimmed)) return false;
-    if (/\b(ATB|MChJ|AJ|QK|banki|bank|kompaniyasi|jamiyati|korxonasi|firmasi|LLC|JSC)\b/iu.test(trimmed)) {
-      return false;
-    }
-    // Faqat 2 yoki 3 bo'lakdan iborat bo'lsin
-    const parts = trimmed.split(/\s+/);
-    if (parts.length < 2 || parts.length > 3) return false;
-    // Har bir bo'lak: bosh harf katta, qolganlari harflar (lotin/kirill), kamida 3 ta belgi,
-    // to'liq KATTA HARFLI (HEADER) bo'laklar bo'lmasin.
-    if (
-      !parts.every(
-        (p) => {
-          if (p === p.toUpperCase()) return false;
-          return (
-            /^[A-ZА-ЯЁЎҚҒҲ][A-Za-zА-Яа-яЁёЎўҚқҒғҲҳ'’\-]{2,}$/u.test(p) &&
-            hasVowel(p) &&
-            hasConsonant(p)
-          );
-        }
-      )
-    ) {
-      return false;
-    }
-    return true;
-  };
-
-  const filtered = Array.from(candidates.values())
-    .map((name) => name.trim())
-    .filter((name) => name.length >= 3 && isLikelyPerson(name));
-
-  // Agar hech narsa topilmasa, bo'sh ro'yxat qaytaramiz (mantiqsiz so'zlar o'rniga)
-  const finalList = filtered;
-
-  // Juda ko‘p bo‘lsa ham, eng ko‘pi bilan 100 ta nom qaytaramiz
-  return finalList
-    .slice(0, 100)
-    .map((name) => ({
-      name,
-      suggestedRole: "Boshqa",
-    }));
+// QAT'IY QOIDA: To'qima/taxminiy ism chiqarilmasin. Ishtirokchilar FAQAT hujjat matnida aniq tilga olingan shaxslardan olinadi.
+const fallbackExtractParticipants = (_caseDetails: string, _files: CaseFile[]): SuggestedParticipant[] => {
+  return [];
 };
 
 // Ishtirokchilarni aniqlashda birinchi navbatda lokal fallback ishlaydi,
@@ -847,12 +736,16 @@ export const getCaseParticipants = async (
     // 2) Asosiy: AI orqali ishtirokchilarni aniqlash.
     const textParts = prepareParticipantTextParts(caseDetails, files);
     const inlineFileParts = prepareFileParts(files) || [];
-    let fullPrompt = `Hujjatlarni va ish tafsilotlarini juda diqqat bilan tahlil qilib, undagi barcha ASOSIY ishtirokchilar (faqat tirik shaxslar, mijozlar, javobgarlar, jabrlanuvchilar, guvohlar va hokazo) ro'yxatini va ularning taxminiy rollarini aniqlang. 
-Har bir ismni alohida qatorda ko'rsating, mumkin bo'lgan rolini aniq yozing. 
-Tashkilot nomlarini va umumiy sarlavhalarni (masalan, DEFENSE, JUSTICE, HYUNDAI SONATA, shahar/tuman nomlari) ishtirokchi sifatida qaytarmang.
-Agar rol aniq bo'lmasa, kontekstdan kelib chiqib eng mantiqiy rolni taklif qiling (masalan, guvoh, jabrlanuvchi, ekspert va h.k.).
-Ismlar va rollarni faqat JSON formatda, quyidagi ko'rinishda qaytaring:
-{"participants":[{"name":"F.I.Sh","suggestedRole":"Rol nomi"}]}
+    let fullPrompt = `QAT'IY QOIDA – bajaring:
+1) FAQAT hujjat matnida yoki rasmda ANIQ tilga olingan (yozilgan yoki ko'rinadigan) shaxs ismlarini qaytaring.
+2) Hech qachon hujjatda yo'q ismni ixtiro qilmang, taxmin qilib qo'shmang va generatsiya qilmang.
+3) Agar hujjatda hech qanday ism aniq ko'rinmasa yoki matn scanner/OCR dan o'qilmayotgan bo'lsa – bo'sh ro'yxat qaytaring: {"participants":[]}.
+4) Faqat hujjatda aniq yozilgan F.I.Sh (da'vogar, javobgar, guvoh, jabrlanuvchi va h.k.) ni participants ga kiriting. Rolni hujjatdagi kontekstdan aniqlang.
+5) Tashkilot nomlari, sarlavhalar, shahar nomlari ishtirokchi emas – ularni qaytarmang.
+
+Hujjatlarni tahlil qiling va FAQAT hujjatda aniq tilga olingan ishtirokchilarni JSON da qaytaring:
+{"participants":[{"name":"Hujjatda yozilgan F.I.Sh","suggestedRole":"Rol nomi"}]}
+Agar bitta ham aniq ism topilmasa: {"participants":[]}
 \n\n${t("prompt_language_enforcement")}`;
 
     const response = await executeWithRetry(
@@ -882,16 +775,15 @@ Ismlar va rollarni faqat JSON formatda, quyidagi ko'rinishda qaytaring:
     );
 
     if (!response.text) {
-      return localParticipants;
+      return [];
     }
 
     const parsed = extractJson(response.text);
     const aiParticipants: SuggestedParticipant[] =
       parsed && Array.isArray(parsed.participants) ? parsed.participants : [];
 
-    // Agar AI hech narsa qaytarmasa – zaxira sifatida lokal natijadan foydalanamiz.
     if (!aiParticipants.length) {
-      return localParticipants;
+      return [];
     }
 
     // 3) AI natijalarini tozalab, dublikatlarni olib tashlaymiz.
@@ -913,17 +805,9 @@ Ismlar va rollarni faqat JSON formatda, quyidagi ko'rinishda qaytaring:
     const cleanedAi = Array.from(byName.values()).slice(0, 100);
 
     // 4) Agar AI ro'yxati juda qisqa bo'lsa (masalan, 0–1 kishi), lokal fallbackdan bir-ikki nom qo‘shib qo‘yishimiz mumkin.
-    if (cleanedAi.length <= 1 && localParticipants.length > 0) {
-      const extra = localParticipants.slice(0, 3).filter((lp) => {
-        const key = lp.name.trim().toLowerCase();
-        return !!lp.name && !byName.has(key);
-      });
-      return [...cleanedAi, ...extra];
-    }
-
     return cleanedAi;
   } catch (error) {
-    return localParticipants;
+    return [];
   }
 };
 
