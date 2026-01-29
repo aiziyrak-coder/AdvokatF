@@ -519,10 +519,19 @@ const fallbackExtractParticipants = (caseDetails: string, files: CaseFile[]): Su
   // Agar hech narsa topilmasa, bo'sh ro'yxat qaytaramiz (mantiqsiz so'zlar o'rniga)
   const finalList = filtered;
 
-  // Faqat hujjatda aniq uchragan ismlarni qaytaramiz (mock/o'xshash yo'q).
+  // QAT'IY: faqat hujjatda SO'Z CHEGARASIDA uchragan ismlar (yopishib ketgan so'z rad etiladi).
   const fullForFallback = textChunks.join("\n").replace(/\s+/g, " ").toLowerCase();
-  const appearsInDoc = (name: string) => fullForFallback.includes(name.trim().toLowerCase());
-  const verified = finalList.filter((name) => appearsInDoc(name));
+  const isWordCharF = (ch: string) => /[a-zа-яёўқғҳ0-9]/i.test(ch);
+  const appearsInDocStrict = (name: string) => {
+    const n = name.trim().toLowerCase();
+    if (!n) return false;
+    const idx = fullForFallback.indexOf(n);
+    if (idx === -1) return false;
+    const before = idx === 0 ? " " : fullForFallback[idx - 1];
+    const after = idx + n.length >= fullForFallback.length ? " " : fullForFallback[idx + n.length];
+    return !isWordCharF(before) && !isWordCharF(after);
+  };
+  const verified = finalList.filter((name) => appearsInDocStrict(name));
   return verified
     .slice(0, 100)
     .map((name) => ({
@@ -855,16 +864,17 @@ export const getCaseParticipants = async (
       return localParticipants;
     }
     const inlineFileParts = prepareFileParts(files) || [];
-    let fullPrompt = `Vazifa: Berilgan hujjat(lar) matnidan FAQAT shu matnda aniq yozilgan JISMONIY SHAXSLAR (odamlar) ismlarini aniqlang. Har bir ismni HUJJATDA YOZILGANIDEK, belgi-ma-belgi qaytaring.
+    let fullPrompt = `QAT'IY VAZIFA: Berilgan hujjat matnida AYNAN yozilgan (copy-paste) ism-familiyalarni qaytaring. Boshqa hech narsa emas.
 
-QAT'IY QOIDALAR:
-1) "name" maydonida faqat hujjat matnida AYNAN shunday ko'rinadigan ism-familiya (F.I.Sh) bo'lsin. Lotin bo'lsa lotin, kirill bo'lsa kirill – o'zgartirmang.
-2) Hech qanday ism uydirmang, tahmin qilmaymang – faqat matnda ko'rinadigan ismlarni qaytaring. Agar bitta ham aniq shaxs ismi ko'rinmasa, bo'sh massiv qaytaring: {"participants":[]}.
-3) Tashkilotlar, mahkamalar, brendlar ishtirokchi emas – faqat odam ismlari (da'vogar, javobgar, jabrlanuvchi, guvoh va h.k.).
-4) suggestedRole: "Da'vogar", "Javobgar", "Jabrlanuvchi", "Guvoh", "Boshqa" – matn kontekstidan aniqlang.
+TAQIQLANGAN: Ism uydirish, tahmin qilish, OCR ni "tuzatish", boshqa manbadan ism qo'shish. Agar ism matnda LITERAL ko'rinmasa – ro'yxatga KIRITMANGS.
 
-Javobni faqat quyidagi JSON formatda bering (boshqa matn yozmang):
-{"participants":[{"name":"Hujjatdagi ism aynan shunday","suggestedRole":"Rol"}]}
+QOIDALAR:
+1) "name" – faqat va faqat hujjat matnida ketma-ket (bir-biriga yonma-yon) yozilgan so'zlar. Masalan matnda "Исмонов Азамат" bo'lsa – aynan shunday qaytaring; "Исмонов" yoki "Азамат" alohida bo'lsa ham, faqat matnda bor bo'lsa.
+2) Hech qanday yangi yozuv (lotin/kirill almashtirish, taxminiy ism) QAT'IY taqiqlanadi. Shubha bo'lsa – o'sha ismni chiqarmang.
+3) Faqat odam ismlari (tashkilot, sud, bank nomi emas). suggestedRole: "Da'vogar", "Javobgar", "Guvoh", "Boshqa" – matndan.
+4) Matnda aniq shaxs ismi yo'q bo'lsa: {"participants":[]} qaytaring.
+
+Javob – faqat JSON: {"participants":[{"name":"Matndagi ism aynan shunday","suggestedRole":"Rol"}]}
 \n\n${t("prompt_language_enforcement")}`;
 
     const response = await executeWithRetry(
@@ -921,28 +931,30 @@ Javobni faqat quyidagi JSON formatda bering (boshqa matn yozmang):
       }
     }
 
-    // 4) Faqat hujjat matnida AYNAN shu ibora sifatida uchraydigan ismlarni qoldiramiz (AI uydirma ism qaytarmasin).
+    // 4) QAT'IY: faqat hujjat matnida SO'Z CHEGARASIDA (butun ibora) uchragan ismlar. Uydirma/yopishib ketgan so'z rad etiladi.
     const fullDocText = [caseDetails, ...(files || []).map((f) => f.extractedText || "")].join("\n").replace(/\s+/g, " ");
     const fullDocNorm = fullDocText.toLowerCase().trim();
-    const nameAppearsInDoc = (name: string): boolean => {
+    const isWordChar = (ch: string) => /[a-zа-яёўқғҳ0-9]/i.test(ch);
+    const nameAppearsInDocStrict = (name: string): boolean => {
       const n = name.trim().replace(/\s+/g, " ").toLowerCase();
       if (!n || n.length < 3) return false;
-      // Faqat to'liq ism iborasi hujjatda bo'lsa qabul qilamiz (so'zlar tarqalib yozilgan variantlarni rad etamiz).
-      if (fullDocNorm.includes(n)) return true;
-      return false;
+      const idx = fullDocNorm.indexOf(n);
+      if (idx === -1) return false;
+      const before = idx === 0 ? " " : fullDocNorm[idx - 1];
+      const after = idx + n.length >= fullDocNorm.length ? " " : fullDocNorm[idx + n.length];
+      return !isWordChar(before) && !isWordChar(after);
     };
-    let cleanedAi = Array.from(byName.values()).filter((p) => nameAppearsInDoc(p.name));
+    let cleanedAi = Array.from(byName.values()).filter((p) => nameAppearsInDocStrict(p.name));
     cleanedAi = cleanedAi.slice(0, 100);
 
-    // 5) Agar AI dan hujjatga mos ism kam qolsa yoki bo'lmasa, lokal (regex) natijani ishlatamiz.
+    // 5) Agar AI dan hujjatga mos ism kam bo'lsa, faqat lokal ro'yxatdan ham QAT'IY tekshiruvdan o'tganlarni qo'shamiz.
     if (cleanedAi.length <= 1 && localParticipants.length > 0) {
-      const extra = localParticipants.slice(0, 5).filter((lp) => {
-        const key = lp.name.trim().toLowerCase();
-        return !!lp.name && !byName.has(key);
-      });
-      return cleanedAi.length ? [...cleanedAi, ...extra] : localParticipants;
+      const extra = localParticipants
+        .filter((lp) => !!lp.name && nameAppearsInDocStrict(lp.name) && !byName.has(lp.name.trim().toLowerCase()))
+        .slice(0, 5);
+      return cleanedAi.length ? [...cleanedAi, ...extra] : localParticipants.filter((lp) => nameAppearsInDocStrict(lp.name));
     }
-    if (cleanedAi.length === 0) return localParticipants;
+    if (cleanedAi.length === 0) return localParticipants.filter((lp) => nameAppearsInDocStrict(lp.name));
 
     return cleanedAi;
   } catch (error) {
