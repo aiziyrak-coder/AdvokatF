@@ -20,6 +20,9 @@ if (!GEMINI_API_KEY) {
 
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
+// Ishtirokchilarni aniqlash uchun Pro model (hujjatdan ism ajratishda Flash dan yaxshiroq).
+const PARTICIPANT_EXTRACTION_MODEL = "gemini-3-pro-preview";
+
 // API key muammosini kuzatish uchun flag
 let apiKeyIssueDetected = false;
 
@@ -846,19 +849,22 @@ export const getCaseParticipants = async (
     // 2) Asosiy: AI orqali ishtirokchilarni aniqlash.
     const textParts = prepareParticipantTextParts(caseDetails, files);
     const inlineFileParts = prepareFileParts(files) || [];
-    let fullPrompt = `Vazifa: HUJJAT MATNIDA aynan yozilgan shaxs ismlarini aniqlang. Muhim qoidalar:
-1) Faqat hujjat(lar) ichida AYNAN shu yozuvda uchraydigan ismlarni qaytaring. Ismni o'zgartirmang, boshqa tilga tarjima qilmaymang, taxminiy yozuv (transliteratsiya) qilmaymang.
-2) Har bir ismni hujjatda ko'rinadiganidek — lotin yoki kirill — xuddi shunday qaytaring. Yangi ism uydirmang yoki tahmin qilmaymang.
-3) Tashkilot nomlari, sarlavhalar (DEFENSE, JUSTICE, brendlar, shahar/tuman) ishtirokchi sifatida qaytarilmasin. Faqat jismoniy shaxslar: da'vogar, javobgar, jabrlanuvchi, guvoh va h.k.
-4) Rol aniq bo'lmasa, kontekstdan "Boshqa" yoki mantiqiy rol (guvoh, jabrlanuvchi) yozing.
-Javobni faqat quyidagi JSON formatda bering:
-{"participants":[{"name":"Hujjatda yozilganidek F.I.Sh","suggestedRole":"Rol nomi"}]}
+    let fullPrompt = `Vazifa: Berilgan hujjat(lar)dan faqat JISMONIY SHAXSLAR (odamlar) ismlarini aniqlang va ularni HUJJATDA YOZILGANIDEK, belgi-ma-belgi qaytaring.
+
+QAT'IY QOIDALAR:
+1) "name" maydonida faqat hujjat matnida yoki rasmlarda AYNAN shunday yozilgan ism-familiya (F.I.Sh) bo'lsin. Lotin bo'lsa lotin, kirill bo'lsa kirill – o'zgartirmang, tarjima qilmaymang.
+2) Hech qanday yangi ism uydirmang, tahmin qilmaymang, OCR xatosini "tuzatmaymang" – faqat hujjatda ko'rinadigan matnni qaytaring.
+3) Tashkilotlar, mahkamalar, brendlar, transport nomlari ishtirokchi emas – faqat odam ismlari (da'vogar, javobgar, jabrlanuvchi, guvoh, imzo qo'ygan shaxs va h.k.).
+4) suggestedRole: "Da'vogar", "Javobgar", "Jabrlanuvchi", "Guvoh", "Boshqa" va h.k. – kontekstdan aniqlang.
+
+Javobni faqat quyidagi JSON formatda bering (boshqa matn yozmang):
+{"participants":[{"name":"Hujjatdagi ism aynan shunday","suggestedRole":"Rol"}]}
 \n\n${t("prompt_language_enforcement")}`;
 
     const response = await executeWithRetry(
       async () =>
         await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
+          model: PARTICIPANT_EXTRACTION_MODEL,
           contents: { parts: [{ text: fullPrompt }, ...(textParts || []), ...inlineFileParts] },
           config: {
             responseMimeType: "application/json",
@@ -876,7 +882,7 @@ Javobni faqat quyidagi JSON formatda bering:
               },
               required: ["participants"],
             },
-            temperature: 0.1,
+            temperature: 0,
           },
         })
     );
