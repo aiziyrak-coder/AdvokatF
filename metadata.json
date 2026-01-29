@@ -1,0 +1,8 @@
+
+{
+  "name": "Adolat AI",
+  "description": "An AI-powered platform for lawyers in Uzbekistan. It features a panel of five AI legal experts who debate and collaborate to create winning legal strategies based on the laws of Uzbekistan, referencing legal articles and codes.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

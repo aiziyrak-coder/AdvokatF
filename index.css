@@ -1,0 +1,131 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Asosiy to'q fon ranglari (Deep Space / Cyberpunk) */
+  --bg-primary: #020617; /* Slate 950 - juda to'q ko'k */
+  --bg-secondary: #0f172a; /* Slate 900 */
+  --bg-tertiary: #1e293b; /* Slate 800 */
+  
+  /* Matn ranglari */
+  --text-primary: #f8fafc; /* Slate 50 */
+  --text-secondary: #94a3b8; /* Slate 400 */
+  
+  /* Aksent ranglar (Gradientlar uchun) */
+  --accent-cyan: #06b6d4; /* Cyan 500 */
+  --accent-blue: #3b82f6; /* Blue 500 */
+  --accent-purple: #8b5cf6; /* Violet 500 */
+  --accent-pink: #ec4899; /* Pink 500 */
+  
+  /* Asosiy aksent (hozirgi kodda ishlatilayotgan) */
+  --accent-primary: #06b6d4;
+  --border-color: #1e293b;
+}
+
+body {
+  background-color: var(--bg-primary);
+  background-image: 
+    radial-gradient(circle at 15% 50%, rgba(6, 182, 212, 0.08), transparent 25%), 
+    radial-gradient(circle at 85% 30%, rgba(139, 92, 246, 0.08), transparent 25%);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  overflow-x: hidden;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(to bottom, var(--accent-cyan), var(--accent-blue));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(to bottom, var(--accent-blue), var(--accent-purple));
+}
+
+/* Animatsion Gradient Border */
+@property --angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes rotate-gradient {
+  to {
+    --angle: 360deg;
+  }
+}
+
+.gradient-border {
+  position: relative;
+  background: var(--bg-secondary);
+  border-radius: 0.75rem; /* rounded-xl */
+  z-index: 1;
+}
+
+.gradient-border::before {
+  content: "";
+  position: absolute;
+  inset: -1.5px; /* Border qalinligi */
+  z-index: -1;
+  background: conic-gradient(
+    from var(--angle), 
+    var(--accent-cyan), 
+    var(--accent-blue), 
+    var(--accent-purple), 
+    var(--accent-pink), 
+    var(--accent-cyan)
+  );
+  border-radius: inherit;
+  animation: rotate-gradient 4s linear infinite;
+  opacity: 0.7;
+}
+
+.gradient-border::after {
+  content: "";
+  position: absolute;
+  inset: 0.5px; /* Ichki fon uchun */
+  z-index: -1;
+  background: var(--bg-secondary);
+  border-radius: inherit;
+}
+
+/* Glassmorphism */
+.glass-panel {
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+}
+
+/* Input Styles */
+.input-field {
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  transition: all 0.3s ease;
+}
+
+.input-field:focus {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 15px rgba(6, 182, 212, 0.3);
+  background: rgba(30, 41, 59, 0.8);
+}
+
+/* Text Gradients */
+.text-gradient {
+  background: linear-gradient(to right, var(--accent-cyan), var(--accent-blue), var(--accent-purple));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.animate-assemble-in {
+  /* Agar kerak bo'lsa qaytarish, hozircha o'chirilgan */
+}
