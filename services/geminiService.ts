@@ -846,12 +846,13 @@ export const getCaseParticipants = async (
     // 2) Asosiy: AI orqali ishtirokchilarni aniqlash.
     const textParts = prepareParticipantTextParts(caseDetails, files);
     const inlineFileParts = prepareFileParts(files) || [];
-    let fullPrompt = `Hujjatlarni va ish tafsilotlarini juda diqqat bilan tahlil qilib, undagi barcha ASOSIY ishtirokchilar (faqat tirik shaxslar, mijozlar, javobgarlar, jabrlanuvchilar, guvohlar va hokazo) ro'yxatini va ularning taxminiy rollarini aniqlang. 
-Har bir ismni alohida qatorda ko'rsating, mumkin bo'lgan rolini aniq yozing. 
-Tashkilot nomlarini va umumiy sarlavhalarni (masalan, DEFENSE, JUSTICE, HYUNDAI SONATA, shahar/tuman nomlari) ishtirokchi sifatida qaytarmang.
-Agar rol aniq bo'lmasa, kontekstdan kelib chiqib eng mantiqiy rolni taklif qiling (masalan, guvoh, jabrlanuvchi, ekspert va h.k.).
-Ismlar va rollarni faqat JSON formatda, quyidagi ko'rinishda qaytaring:
-{"participants":[{"name":"F.I.Sh","suggestedRole":"Rol nomi"}]}
+    let fullPrompt = `Vazifa: HUJJAT MATNIDA aynan yozilgan shaxs ismlarini aniqlang. Muhim qoidalar:
+1) Faqat hujjat(lar) ichida AYNAN shu yozuvda uchraydigan ismlarni qaytaring. Ismni o'zgartirmang, boshqa tilga tarjima qilmaymang, taxminiy yozuv (transliteratsiya) qilmaymang.
+2) Har bir ismni hujjatda ko'rinadiganidek — lotin yoki kirill — xuddi shunday qaytaring. Yangi ism uydirmang yoki tahmin qilmaymang.
+3) Tashkilot nomlari, sarlavhalar (DEFENSE, JUSTICE, brendlar, shahar/tuman) ishtirokchi sifatida qaytarilmasin. Faqat jismoniy shaxslar: da'vogar, javobgar, jabrlanuvchi, guvoh va h.k.
+4) Rol aniq bo'lmasa, kontekstdan "Boshqa" yoki mantiqiy rol (guvoh, jabrlanuvchi) yozing.
+Javobni faqat quyidagi JSON formatda bering:
+{"participants":[{"name":"Hujjatda yozilganidek F.I.Sh","suggestedRole":"Rol nomi"}]}
 \n\n${t("prompt_language_enforcement")}`;
 
     const response = await executeWithRetry(
@@ -908,17 +909,29 @@ Ismlar va rollarni faqat JSON formatda, quyidagi ko'rinishda qaytaring:
       }
     }
 
-    // Juda ko‘p bo‘lsa ham, eng ko‘pi bilan 100 ta nom qaytaramiz.
-    const cleanedAi = Array.from(byName.values()).slice(0, 100);
+    // 4) Faqat hujjat matnida haqiqatan ham uchraydigan ismlarni qoldiramiz (AI ba'zan noto'g'ri ism uydiradi).
+    const fullDocText = [caseDetails, ...(files || []).map((f) => f.extractedText || "")].join("\n").replace(/\s+/g, " ");
+    const fullDocNorm = fullDocText.toLowerCase().trim();
+    const nameAppearsInDoc = (name: string): boolean => {
+      const n = name.trim().replace(/\s+/g, " ");
+      if (!n || n.length < 2) return false;
+      if (fullDocNorm.includes(n.toLowerCase())) return true;
+      const words = n.split(/\s+/).filter((w) => w.length >= 2);
+      if (words.length >= 2 && words.every((w) => fullDocNorm.includes(w.toLowerCase()))) return true;
+      return false;
+    };
+    let cleanedAi = Array.from(byName.values()).filter((p) => nameAppearsInDoc(p.name));
+    cleanedAi = cleanedAi.slice(0, 100);
 
-    // 4) Agar AI ro'yxati juda qisqa bo'lsa (masalan, 0–1 kishi), lokal fallbackdan bir-ikki nom qo‘shib qo‘yishimiz mumkin.
+    // 5) Agar AI dan hujjatga mos ism kam qolsa yoki bo'lmasa, lokal (regex) natijani ishlatamiz.
     if (cleanedAi.length <= 1 && localParticipants.length > 0) {
-      const extra = localParticipants.slice(0, 3).filter((lp) => {
+      const extra = localParticipants.slice(0, 5).filter((lp) => {
         const key = lp.name.trim().toLowerCase();
         return !!lp.name && !byName.has(key);
       });
-      return [...cleanedAi, ...extra];
+      return cleanedAi.length ? [...cleanedAi, ...extra] : localParticipants;
     }
+    if (cleanedAi.length === 0) return localParticipants;
 
     return cleanedAi;
   } catch (error) {
