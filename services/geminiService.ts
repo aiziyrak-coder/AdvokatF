@@ -490,10 +490,11 @@ const fallbackExtractParticipants = (caseDetails: string, files: CaseFile[]): Su
     if (/\b(ATB|MChJ|AJ|QK|banki|bank|kompaniyasi|jamiyati|korxonasi|firmasi|LLC|JSC)\b/iu.test(trimmed)) {
       return false;
     }
-    // Faqat 2 yoki 3 bo'lakdan iborat bo'lsin
     const parts = trimmed.split(/\s+/);
     if (parts.length < 2 || parts.length > 3) return false;
-    // Har bir bo'lak: bosh harf katta, qolganlari harflar (lotin/kirill), kamida 3 ta belgi,
+    if (parts.some((p) => p.length < 2 || p.length > 15)) return false;
+    if (/[bcdfghjklmnpqrstvwxyzбвгджзйклмнпрстфхцчшщқғҳ]{3,}/i.test(trimmed)) return false;
+    // Har bir bo'lak: bosh harf katta, unli+undosh, 2–15 belgi
     // to'liq KATTA HARFLI (HEADER) bo'laklar bo'lmasin.
     if (
       !parts.every(
@@ -519,25 +520,19 @@ const fallbackExtractParticipants = (caseDetails: string, files: CaseFile[]): Su
   // Agar hech narsa topilmasa, bo'sh ro'yxat qaytaramiz (mantiqsiz so'zlar o'rniga)
   const finalList = filtered;
 
-  // Hujjatda uchragan ismlar: avval qat'iy (so'z chegarasi), bo'sh bo'lsa ibora sifatida (loose).
+  // Faqat hujjatda SO'Z CHEGARASIDA uchragan ismlar (uydirma va OCR garbage yo'q).
   const fullForFallback = textChunks.join("\n").normalize("NFC").replace(/\s+/g, " ").replace(/\u00A0/g, " ").toLowerCase().trim();
   const isWordCharF = (ch: string) => /[a-zа-яёўқғҳ0-9]/i.test(ch);
-  const appearsStrict = (name: string) => {
+  const appearsInDoc = (name: string) => {
     const n = name.trim().normalize("NFC").replace(/\s+/g, " ").toLowerCase();
-    if (!n) return false;
+    if (!n || n.length < 3) return false;
     const idx = fullForFallback.indexOf(n);
     if (idx === -1) return false;
     const before = idx === 0 ? " " : fullForFallback[idx - 1];
     const after = idx + n.length >= fullForFallback.length ? " " : fullForFallback[idx + n.length];
     return !isWordCharF(before) && !isWordCharF(after);
   };
-  const appearsLoose = (name: string) => {
-    const n = name.trim().normalize("NFC").replace(/\s+/g, " ").toLowerCase();
-    if (!n || n.length < 3) return false;
-    return fullForFallback.includes(n);
-  };
-  let verified = finalList.filter((name) => appearsStrict(name));
-  if (verified.length === 0) verified = finalList.filter((name) => appearsLoose(name));
+  const verified = finalList.filter((name) => appearsInDoc(name));
   return verified
     .slice(0, 100)
     .map((name) => ({
@@ -546,9 +541,8 @@ const fallbackExtractParticipants = (caseDetails: string, files: CaseFile[]): Su
     }));
 };
 
-// Ishtirokchilarni aniqlashda birinchi navbatda lokal fallback ishlaydi,
-// lekin asosiy va ishonchli ro'yxatni AI dan olamiz; fallback faqat zaxira sifatida.
-const USE_AI_FOR_PARTICIPANTS = true;
+// Ishtirokchilar FAQAT hujjat matnidan (regex + so'z chegarasi). AI uydirma ism qaytarishi sababli o'chirilgan.
+const USE_AI_FOR_PARTICIPANTS = false;
 
 
 const MAX_RETRIES = 1;
